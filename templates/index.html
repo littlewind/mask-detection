@@ -1,123 +1,143 @@
 <html>
-  <head>
+<head>
     <title>Pi Video Surveillance</title>
 
-      <style>
-    /* CSS comes here */
-    #video {
-      border: 1px solid black;
-      width: 320px;
-      height: 240px;
-    }
+    <style>
+        /* CSS comes here */
+        #video {
+            border: 1px solid black;
+            width: 320px;
+            height: 240px;
+        }
 
-    #photo {
-      border: 1px solid black;
-      width: 320px;
-      height: 240px;
-    }
+        #photo {
+            border: 1px solid black;
+            width: 320px;
+            height: 240px;
+        }
 
-    #canvas {
-      display: none;
-    }
+        #canvas {
+            display: none;
+        }
 
-    .camera {
-      width: 340px;
-      display: inline-block;
-    }
+        .camera {
+            width: 340px;
+            display: inline-block;
+        }
 
-    .output {
-      width: 340px;
-      display: inline-block;
-    }
+        .output {
+            width: 340px;
+            display: inline-block;
+        }
 
-    #startbutton {
-      display: block;
-      position: relative;
-      margin-left: auto;
-      margin-right: auto;
-      bottom: 36px;
-      padding: 5px;
-      background-color: #6a67ce;
-      border: 1px solid rgba(255, 255, 255, 0.7);
-      font-size: 14px;
-      color: rgba(255, 255, 255, 1.0);
-      cursor: pointer;
-    }
+        #startbutton {
+            display: block;
+            position: relative;
+            margin-left: auto;
+            margin-right: auto;
+            bottom: 36px;
+            padding: 5px;
+            background-color: #6a67ce;
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            color: rgba(255, 255, 255, 1.0);
+            cursor: pointer;
+        }
 
-    .contentarea {
-      font-size: 16px;
-      font-family: Arial;
-      text-align: center;
-    }
-  </style>
-  </head>
-  <body>
-    <h1>Pi Video Surveillance</h1>
-    <img id="image" src="{{ url_for('video_feed') }}">
+        .contentarea {
+            font-size: 16px;
+            font-family: Arial;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+<h1>Pi Video Surveillance</h1>
+<img id="image" src="{{ url_for('video_feed') }}">
 
-    <div><button id="startbutton">Take photo</button></div>
-    <canvas id="canvas"></canvas>
-    <div class="output">
-      <img id="photo" alt="The screen capture will appear in this box.">
-    </div>
-  </body>
+<div>
+    <button id="startbutton">Take photo</button>
+</div>
+<canvas id="canvas"></canvas>
+<div class="output">
+    <img id="photo" alt="The screen capture will appear in this box.">
+</div>
+</body>
 
 
-  <script>
+<script>
     /* JS comes here */
     (function () {
 
-      var width = 320; // We will scale the photo width to this
-      var height = 320; // This will be computed based on the input stream
+        var width = 320; // We will scale the photo width to this
+        var height = 320; // This will be computed based on the input stream
 
-      var streaming = false;
+        var streaming = false;
 
-      var video = null;
-      var canvas = null;
-      var photo = null;
-      var startbutton = null;
+        var video = null;
+        var canvas = null;
+        var photo = null;
+        var startbutton = null;
 
-      function startup() {
-        video = document.getElementById('image');
-        canvas = document.getElementById('canvas');
-        photo = document.getElementById('photo');
-        startbutton = document.getElementById('startbutton');
-
-
-        startbutton.addEventListener('click', function (ev) {
-          takepicture();
-          ev.preventDefault();
-        }, false);
-
-        clearphoto();
-      }
+        function startup() {
+            video = document.getElementById('image');
+            canvas = document.getElementById('canvas');
+            photo = document.getElementById('photo');
+            startbutton = document.getElementById('startbutton');
 
 
-      function clearphoto() {
-        var context = canvas.getContext('2d');
-        context.fillStyle = "#AAA";
-        context.fillRect(0, 0, canvas.width, canvas.height);
+            startbutton.addEventListener('click', function (ev) {
+                takepicture();
+                ev.preventDefault();
+            }, false);
 
-        var data = canvas.toDataURL('image/png');
-        photo.setAttribute('src', data);
-      }
-
-      function takepicture() {
-        console.log('clicked');
-        var context = canvas.getContext('2d');
-        if (width && height) {
-          canvas.width = width;
-          canvas.height = height;
-          context.drawImage(video, 0, 0, width, height);
-
-          var data = canvas.toDataURL('image/png');
-          photo.setAttribute('src', data);
-        } else {
-          clearphoto();
+            clearphoto();
         }
-      }
 
-      window.addEventListener('load', startup, false);
+        function file_select_handler(to_upload) {
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', '/post', true);
+            xhr.send(to_upload);
+        };
+
+        function clearphoto() {
+            var context = canvas.getContext('2d');
+            context.fillStyle = "#AAA";
+            context.fillRect(0, 0, canvas.width, canvas.height);
+
+            var data = canvas.toDataURL('image/jpeg');
+            photo.setAttribute('src', data);
+        }
+
+        function takepicture() {
+            console.log('clicked');
+            var context = canvas.getContext('2d');
+            var mimeType = 'image/png';
+            if (width && height) {
+                canvas.width = width;
+                canvas.height = height;
+                context.drawImage(video, 0, 0, width, height);
+
+                var data = canvas.toDataURL(mimeType);
+
+                canvas.toBlob((blob) => {
+                    const reader = new FileReader();
+                    reader.addEventListener('loadend', () => {
+                        const arrayBuffer = reader.result;
+
+                        // Dispay Blob content in an Image.
+                        const blob = new Blob([arrayBuffer], {type: mimeType});
+                        file_select_handler(blob);
+                    });
+                    reader.readAsArrayBuffer(blob);
+                }, mimeType);
+                photo.setAttribute('src', data);
+            } else {
+                clearphoto();
+            }
+        }
+
+        window.addEventListener('load', startup, false);
     })();
-  </script>
+</script>
 </html>
