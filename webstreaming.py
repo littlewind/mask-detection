@@ -2,20 +2,21 @@
 # python webstreaming.py --ip 0.0.0.0 --port 8000
 
 # import the necessary packages
-from imutils.video import VideoStream
-from flask import Response
-from flask import Flask
-from flask import render_template
-import threading
-import argparse
-import datetime
-import imutils
-import time
-import cv2
+
 
 # initialize the output frame and a lock used to ensure thread-safe
 # exchanges of the output frames (useful for multiple browsers/tabs
 # are viewing tthe stream)
+import argparse
+import datetime
+import threading
+import time
+
+import imutils
+from cv2 import cv2
+from flask import Flask, render_template, Response
+from imutils.video import VideoStream
+
 from model.mask_detection.maskdetector import MaskDetector
 
 outputFrame = None
