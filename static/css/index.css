@@ -13,7 +13,7 @@ a {
 }
 
 .notice {
-    font-size: 80%;
+    font-size: 80%%;
 }
 
 
@@ -28,9 +28,37 @@ a {
     cursor: default;
 }
 
-#drop.hover {
-    color: #f00;
-    border-color: #f00;
-    border-style: solid;
-    box-shadow: inset 0 3px 4px #888;
+#photo {
+    border: 1px solid black;
+    width: 320px;
+    height: 240px;
+}
+
+#canvas {
+    display: none;
+}
+
+.output {
+    width: 340px;
+    display: inline-block;
+}
+
+#startbutton {
+    display: block;
+    position: relative;
+    margin-left: auto;
+    margin-right: auto;
+    bottom: 36px;
+    padding: 5px;
+    background-color: #6a67ce;
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    font-size: 14px;
+    color: rgba(255, 255, 255, 1.0);
+    cursor: pointer;
+}
+
+.contentarea {
+    font-size: 16px;
+    font-family: Arial;
+    text-align: center;
 }

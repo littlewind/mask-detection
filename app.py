@@ -1,5 +1,4 @@
 
-
 from hashlib import sha1
 from shutil import rmtree
 from stat import S_ISREG, ST_CTIME, ST_MODE
@@ -24,8 +23,10 @@ from imutils.video import VideoStream
 
 from model.mask_detection.maskdetector import MaskDetector
 
-#Define const
+# Define const
 DATA_DIR = 'data'
+CSS_FOLDER = 'static/css'
+JS_FOLDER = 'static/js'
 KEEP_ALIVE_DELAY = 25
 MAX_IMAGE_SIZE = 800, 600
 MAX_IMAGES = 10
@@ -197,6 +198,14 @@ def video_feed():
     # return the response generated along with the specific media
     # type (mime type)
     return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+@APP.route("/css/<filename>")
+def css_file(filename):
+    return flask.send_from_directory(CSS_FOLDER, filename)
+
+@APP.route("/js/<filename>")
+def js_file(filename):
+    return flask.send_from_directory(JS_FOLDER, filename)
 
 @APP.route('/')
 def home():
