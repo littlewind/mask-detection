@@ -143,11 +143,6 @@ def stream():
     return flask.Response(event_stream(flask.request.access_route[0]),
                           mimetype='text/event-stream')
 
-@APP.route("/")
-def index():
-    # return the rendered template
-    return render_template("index.html")
-
 def detec_mask():
     global vs, outputFrame, lock
 
@@ -203,7 +198,7 @@ def video_feed():
     # type (mime type)
     return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
-@APP.route('/upload')
+@APP.route('/')
 def home():
     """Provide the primary view along with its javascript."""
     # Code adapted from: http://stackoverflow.com/questions/168409/
@@ -221,12 +216,7 @@ def home():
             continue
         images.append('<div><img alt="User uploaded image" src="{}" /></div>'
                       .format(path))
-    return render_template('upload.html') % (MAX_IMAGES, '\n'.join(images))  # noqa
-
-
-# if __name__ == '__main__':
-#     APP.debug = True
-#     APP.run('0.0.0.0', threaded=True)
+    return render_template('index.html') % (MAX_IMAGES, '\n'.join(images))  # noqa
 
 
 if __name__ == '__main__':
