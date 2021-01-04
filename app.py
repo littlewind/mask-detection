@@ -1,5 +1,3 @@
-
-
 from hashlib import sha1
 from shutil import rmtree
 from stat import S_ISREG, ST_CTIME, ST_MODE
@@ -7,28 +5,64 @@ import json
 import os
 import time
 
+from flask_cors import CORS
+import numpy as np
 from PIL import Image, ImageFile
 from gevent.event import AsyncResult
 from gevent.queue import Empty, Queue
 from gevent.timeout import Timeout
 import flask
 
-#Define const
+import argparse
+import datetime
+import threading
+
+import imutils
+from cv2 import cv2
+from flask import Flask, render_template, Response, request, flash, url_for, send_from_directory
+from imutils.video import VideoStream
+from reportlab.graphics.barcode.eanbc import UPCA
+from werkzeug.utils import redirect
+from werkzeug.utils import secure_filename
+
+from model.mask_detection.maskdetector import MaskDetector
+
+# Define const
 DATA_DIR = 'data'
+CSS_FOLDER = 'static/css'
+JS_FOLDER = 'static/js'
+BASE_FOLDER = os.path.join(DATA_DIR, 'base')
+UPLOAD_FOLDER = os.path.join(BASE_FOLDER, 'uploads')
 KEEP_ALIVE_DELAY = 25
 MAX_IMAGE_SIZE = 800, 600
 MAX_IMAGES = 10
 MAX_DURATION = 300
+ALLOWED_EXTENSION = {'png', 'jpg', 'jpeg'}
 
-APP = flask.Flask(__name__, static_folder=DATA_DIR)
+outputFrame = None
+lock = threading.Lock()
+
+# initialize the video stream and allow the camera sensor to
+# warmup
+# vs = VideoStream(usePiCamera=1).start()
+vs = VideoStream(src=0).start()
+time.sleep(2.0)
+
+APP = flask.Flask(__name__)
+APP.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+APP.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
+APP.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
+CORS(APP)
 BROADCAST_QUEUE = Queue()
 
 
-try:  # Reset saved files on each start
-    rmtree(DATA_DIR, True)
-    os.mkdir(DATA_DIR)
-except OSError:
-    pass
+# try:  # Reset saved files on each start
+#     rmtree(DATA_DIR, True)
+#     os.mkdir(DATA_DIR)
+#     os.mkdir(BASE_FOLDER)
+#     os.mkdir(UPLOAD_FOLDER)
+# except OSError:
+#     pass
 
 
 def broadcast(message):
@@ -42,7 +76,6 @@ def broadcast(message):
     print('Broadcasting {} messages'.format(len(waiting)))
     for item in waiting:
         item.set(message)
-
 
 def receive():
     """Generator that yields a message at least every KEEP_ALIVE_DELAY seconds.
@@ -78,7 +111,8 @@ def save_normalized_image(path, data):
     try:
         image_parser.feed(data)
         image = image_parser.close()
-    except IOError:
+    except Exception as e:
+        print(str(e))
         return False
     image.thumbnail(MAX_IMAGE_SIZE, Image.ANTIALIAS)
     if image.mode != 'RGB':
@@ -103,16 +137,56 @@ def event_stream(client):
 @APP.route('/post', methods=['POST'])
 def post():
     """Handle image uploads."""
-    sha1sum = sha1(flask.request.data).hexdigest()
-    target = os.path.join(DATA_DIR, '{}.jpg'.format(sha1sum))
-    message = json.dumps({'src': target,
-                          'ip_addr': safe_addr(flask.request.access_route[0])})
-    try:
-        if save_normalized_image(target, flask.request.data):
-            broadcast(message)  # Notify subscribers of completion
-    except Exception as exception:  # Output errors
-        return '{}'.format(exception)
-    return 'success'
+    md = MaskDetector()
+    if request.method == 'POST':
+        # check if the post request has the file part
+        if 'file' not in request.files:
+            flash('No file part')
+            return redirect(request.url)
+        file = request.files['file']
+        response = file.read()
+        frame = cv2.imdecode(np.fromstring(response, np.uint8), cv2.IMREAD_COLOR)
+        frame = imutils.resize(frame, width=400)
+        timestamp = datetime.datetime.now()
+        cv2.putText(frame, timestamp.strftime(
+            "%A %d %B %Y %I:%M:%S%p"), (10, frame.shape[0] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 255), 1)
+
+        result = md.detect(frame)
+        print(type(result))
+        img = Image.fromarray(result, "RGB")
+        # if user does not select file, browser also
+        # submit an empty part without filename
+        if file.filename == '':
+            flash('No selected file')
+            return redirect(request.url)
+
+        if img and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            img.save(os.path.join(UPLOAD_FOLDER, filename))
+            print("done")
+
+    image_infos = []
+    for filename in os.listdir(DATA_DIR):
+        filepath = os.path.join(DATA_DIR, filename)
+        file_stat = os.stat(filepath)
+        if S_ISREG(file_stat[ST_MODE]):
+            image_infos.append((file_stat[ST_CTIME], filepath))
+
+    images = []
+    for i, (_, path) in enumerate(sorted(image_infos, reverse=True)):
+        if i >= MAX_IMAGES:
+            os.unlink(path)
+            continue
+        images.append('<div><img alt="User uploaded image" src="{}" /></div>'
+                      .format(path))
+    return render_template('index.html') % (MAX_IMAGES, '\n'.join(images))
+
+
+# ------------------ Helper functions --------------------- #
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSION
 
 
 @APP.route('/stream')
@@ -120,6 +194,73 @@ def stream():
     """Handle long-lived SSE streams."""
     return flask.Response(event_stream(flask.request.access_route[0]),
                           mimetype='text/event-stream')
+
+
+def detect_mask():
+    global vs, outputFrame, lock
+
+    # initialize the motion detector and the total number of frames
+    # read thus far
+    md = MaskDetector()
+    while True:
+        # read the next frame from the video stream, resize it,
+        # convert the frame to grayscale, and blur it
+        frame = vs.read()
+        frame = imutils.resize(frame, width=400)
+        # print(type(frame))
+        # grab the current timestamp and draw it on the frame
+        timestamp = datetime.datetime.now()
+        cv2.putText(frame, timestamp.strftime(
+            "%A %d %B %Y %I:%M:%S%p"), (10, frame.shape[0] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 255), 1)
+
+        result = md.detect(frame)
+
+        # acquire the lock, set the output frame, and release the
+        # lock
+        with lock:
+            outputFrame = result
+
+
+def generate():
+    # grab global references to the output frame and lock variables
+    global outputFrame, lock
+
+    # loop over frames from the output stream
+    while True:
+        # wait until the lock is acquired
+        with lock:
+            # check if the output frame is available, otherwise skip
+            # the iteration of the loop
+            if outputFrame is None:
+                continue
+
+            # encode the frame in JPEG format
+            (flag, encodedImage) = cv2.imencode(".jpg", outputFrame)
+            # ensure the frame was successfully encoded
+            if not flag:
+                continue
+
+        # yield the output frame in the byte format
+        yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' +
+               bytearray(encodedImage) + b'\r\n')
+
+
+@APP.route("/video_feed")
+def video_feed():
+    # return the response generated along with the specific media
+    # type (mime type)
+    return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+
+@APP.route("/css/<filename>")
+def css_file(filename):
+    return flask.send_from_directory(CSS_FOLDER, filename)
+
+
+@APP.route("/js/<filename>")
+def js_file(filename):
+    return flask.send_from_directory(JS_FOLDER, filename)
 
 
 @APP.route('/')
@@ -140,140 +281,29 @@ def home():
             continue
         images.append('<div><img alt="User uploaded image" src="{}" /></div>'
                       .format(path))
-    return """
-<!doctype html>
-<title>Image Uploader</title>
-<meta charset="utf-8" />
-<script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
-<script src="//ajax.googleapis.com/ajax/libs/jqueryui/1.10.1/jquery-ui.min.js"></script>
-<link rel="stylesheet" href="//ajax.googleapis.com/ajax/libs/jqueryui/1.10.1/themes/vader/jquery-ui.css" />
-<style>
-  body {
-    max-width: 800px;
-    margin: auto;
-    padding: 1em;
-    background: black;
-    color: #fff;
-    font: 16px/1.6 menlo, monospace;
-    text-align:center;
-  }
-
-  a {
-    color: #fff;
-  }
-
-  .notice {
-    font-size: 80%%;
-  }
-
-
-#drop {
-    font-weight: bold;
-    text-align: center;
-    padding: 1em 0;
-    margin: 1em 0;
-    color: #555;
-    border: 2px dashed #555;
-    border-radius: 7px;
-    cursor: default;
-}
-
-#drop.hover {
-    color: #f00;
-    border-color: #f00;
-    border-style: solid;
-    box-shadow: inset 0 3px 4px #888;
-}
-
-</style>
-<h3>Image Uploader</h3>
-<p>Upload anh len page. Nhung buc anh upload se duoc ket noi voi nhung nguoi ket noi voi server, and se co %s tam anh gan nhat o day </p>
-<noscript>Note: You must have javascript enabled in order to upload and
-dynamically view new images.</noscript>
-<fieldset>
-  <p id="status">Select an image</p>
-  <div id="progressbar"></div>
-  <input id="file" type="file" />
-  <div id="drop">or drop image here</div>
-</fieldset>
-<h3>Uploaded Images (updated in real-time)</h3>
-<div id="images">%s</div>
-<script>
-  function sse() {
-      var source = new EventSource('/stream');
-      source.onmessage = function(e) {
-          if (e.data == '')
-              return;
-          var data = $.parseJSON(e.data);
-          var upload_message = 'Image uploaded by ' + data['ip_addr'];
-          var image = $('<img>', {alt: upload_message, src: data['src']});
-          var container = $('<div>').hide();
-          container.append($('<div>', {text: upload_message}));
-          container.append(image);
-          $('#images').prepend(container);
-          image.load(function(){
-              container.show('blind', {}, 1000);
-          });
-      };
-  }
-  function file_select_handler(to_upload) {
-      var progressbar = $('#progressbar');
-      var status = $('#status');
-      var xhr = new XMLHttpRequest();
-      xhr.upload.addEventListener('loadstart', function(e1){
-          status.text('uploading image');
-          progressbar.progressbar({max: e1.total});
-      });
-      xhr.upload.addEventListener('progress', function(e1){
-          if (progressbar.progressbar('option', 'max') == 0)
-              progressbar.progressbar('option', 'max', e1.total);
-          progressbar.progressbar('value', e1.loaded);
-      });
-      xhr.onreadystatechange = function(e1) {
-          if (this.readyState == 4)  {
-              if (this.status == 200)
-                  var text = 'upload complete: ' + this.responseText;
-              else
-                  var text = 'upload failed: code ' + this.status;
-              status.html(text + '<br/>Select an image');
-              progressbar.progressbar('destroy');
-          }
-      };
-      xhr.open('POST', '/post', true);
-      xhr.send(to_upload);
-  };
-  function handle_hover(e) {
-      e.originalEvent.stopPropagation();
-      e.originalEvent.preventDefault();
-      e.target.className = (e.type == 'dragleave' || e.type == 'drop') ? '' : 'hover';
-  }
-
-  $('#drop').bind('drop', function(e) {
-      handle_hover(e);
-      if (e.originalEvent.dataTransfer.files.length < 1) {
-          return;
-      }
-      file_select_handler(e.originalEvent.dataTransfer.files[0]);
-  }).bind('dragenter dragleave dragover', handle_hover);
-  $('#file').change(function(e){
-      file_select_handler(e.target.files[0]);
-      e.target.value = '';
-  });
-  sse();
-
-  var _gaq = _gaq || [];
-  _gaq.push(['_setAccount', 'UA-510348-17']);
-  _gaq.push(['_trackPageview']);
-
-  (function() {
-    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
-    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
-    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
-  })();
-</script>
-""" % (MAX_IMAGES, '\n'.join(images))  # noqa
+    return render_template('index.html') % (MAX_IMAGES, '\n'.join(images))  # noqa
 
 
 if __name__ == '__main__':
+    # construct the argument parser and parse command line arguments
+    ap = argparse.ArgumentParser()
+    ap.add_argument("-i", "--ip", type=str, required=True,
+                    help="ip address of the device")
+    ap.add_argument("-o", "--port", type=int, required=True,
+                    help="ephemeral port number of the server (1024 to 65535)")
+    ap.add_argument("-f", "--frame-count", type=int, default=32,
+                    help="# of frames used to construct the background model")
+    args = vars(ap.parse_args())
+
+    # start a thread that will perform motion detection
+    t = threading.Thread(target=detect_mask)
+    t.daemon = True
+    t.start()
+
     APP.debug = True
-    APP.run('0.0.0.0', threaded=True)
+    # start the flask app
+    APP.run(host=args["ip"], port=args["port"], debug=True,
+            threaded=True, use_reloader=False)
+
+# release the video stream pointer
+vs.stop()

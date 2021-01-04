@@ -1,123 +1,40 @@
-<html>
-  <head>
-    <title>Pi Video Surveillance</title>
+<!doctype html>
+<title>Image Uploader</title>
+<meta charset="utf-8"/>
+<script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+<script src="//ajax.googleapis.com/ajax/libs/jqueryui/1.10.1/jquery-ui.min.js"></script>
+<link rel="stylesheet" href="//ajax.googleapis.com/ajax/libs/jqueryui/1.10.1/themes/vader/jquery-ui.css"/>
+<link rel="stylesheet" href="/css/index.css" />
+<body class="">
+<h3>Image Uploader</h3>
+<p>Upload anh len page. Nhung buc anh upload se duoc ket noi voi nhung nguoi ket noi voi server, and se co %s tam anh
+    gan nhat o day </p>
+<noscript>Note: You must have javascript enabled in order to upload and
+    dynamically view new images.
+</noscript>
 
-      <style>
-    /* CSS comes here */
-    #video {
-      border: 1px solid black;
-      width: 320px;
-      height: 240px;
-    }
-
-    #photo {
-      border: 1px solid black;
-      width: 320px;
-      height: 240px;
-    }
-
-    #canvas {
-      display: none;
-    }
-
-    .camera {
-      width: 340px;
-      display: inline-block;
-    }
-
-    .output {
-      width: 340px;
-      display: inline-block;
-    }
-
-    #startbutton {
-      display: block;
-      position: relative;
-      margin-left: auto;
-      margin-right: auto;
-      bottom: 36px;
-      padding: 5px;
-      background-color: #6a67ce;
-      border: 1px solid rgba(255, 255, 255, 0.7);
-      font-size: 14px;
-      color: rgba(255, 255, 255, 1.0);
-      cursor: pointer;
-    }
-
-    .contentarea {
-      font-size: 16px;
-      font-family: Arial;
-      text-align: center;
-    }
-  </style>
-  </head>
-  <body>
-    <h1>Pi Video Surveillance</h1>
+<div class="contentarea">
     <img id="image" src="{{ url_for('video_feed') }}">
 
-    <div><button id="startbutton">Take photo</button></div>
+    <div>
+        <button id="startbutton">Take photo</button>
+    </div>
     <canvas id="canvas"></canvas>
     <div class="output">
-      <img id="photo" alt="The screen capture will appear in this box.">
+        <img id="photo" alt="The screen capture will appear in this box.">
     </div>
-  </body>
+</div>
 
-
-  <script>
-    /* JS comes here */
-    (function () {
-
-      var width = 320; // We will scale the photo width to this
-      var height = 320; // This will be computed based on the input stream
-
-      var streaming = false;
-
-      var video = null;
-      var canvas = null;
-      var photo = null;
-      var startbutton = null;
-
-      function startup() {
-        video = document.getElementById('image');
-        canvas = document.getElementById('canvas');
-        photo = document.getElementById('photo');
-        startbutton = document.getElementById('startbutton');
-
-
-        startbutton.addEventListener('click', function (ev) {
-          takepicture();
-          ev.preventDefault();
-        }, false);
-
-        clearphoto();
-      }
-
-
-      function clearphoto() {
-        var context = canvas.getContext('2d');
-        context.fillStyle = "#AAA";
-        context.fillRect(0, 0, canvas.width, canvas.height);
-
-        var data = canvas.toDataURL('image/png');
-        photo.setAttribute('src', data);
-      }
-
-      function takepicture() {
-        console.log('clicked');
-        var context = canvas.getContext('2d');
-        if (width && height) {
-          canvas.width = width;
-          canvas.height = height;
-          context.drawImage(video, 0, 0, width, height);
-
-          var data = canvas.toDataURL('image/png');
-          photo.setAttribute('src', data);
-        } else {
-          clearphoto();
-        }
-      }
-
-      window.addEventListener('load', startup, false);
-    })();
-  </script>
-</html>
+<fieldset>
+    <form action = "/post" method = "POST" enctype="multipart/form-data" id = "myForm">
+    <p id="status">Select an image</p>
+    <div id="progressbar"></div>
+    <input type=file name=file>
+    <input type=submit value=Upload>
+    <div id="drop">or drop image here</div>
+    </form>
+</fieldset>
+<h3>Uploaded Images (updated in real-time)</h3>
+<div id="images">%s</div>
+</body>
+<script src="/js/index.js"></script>
