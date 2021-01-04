@@ -78,6 +78,7 @@ def broadcast(message):
     for item in waiting:
         item.set(message)
 
+
 def receive():
     """Generator that yields a message at least every KEEP_ALIVE_DELAY seconds.
 
@@ -137,6 +138,33 @@ def event_stream(client):
 
 @APP.route('/post', methods=['POST'])
 def post():
+    sha1sum = sha1(flask.request.data).hexdigest()
+    target = os.path.join(UPLOAD_FOLDER, '{}.jpg'.format(sha1sum))
+    message = json.dumps({'src': target,
+                          'ip_addr': safe_addr(flask.request.access_route[0])})
+    try:
+        if save_normalized_image(target, flask.request.data):
+            broadcast(message)  # Notify subscribers of completion
+    except Exception as exception:  # Output errors
+        return '{}'.format(exception)
+    return 'success'
+
+# ------------------ Helper functions --------------------- #
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSION
+
+
+@APP.route('/stream')
+def stream():
+    """Handle long-lived SSE streams."""
+    return flask.Response(event_stream(flask.request.access_route[0]),
+                          mimetype='text/event-stream')
+
+
+@APP.route('/upload', methods=['POST'])
+def upload():
+    """Handle image uploads."""
     """Handle image uploads."""
     global md
     if request.method == 'POST':
@@ -160,7 +188,6 @@ def post():
                     cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 255), 1)
 
         result = md.detect(frame)
-        print(type(result))
         # img = Image.fromarray(result, "RGB")
 
         # if img and allowed_file(file.filename):
@@ -186,18 +213,6 @@ def post():
                       .format(path))
     return render_template('index.html') % (MAX_IMAGES, '\n'.join(images))
 
-
-# ------------------ Helper functions --------------------- #
-
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSION
-
-
-@APP.route('/stream')
-def stream():
-    """Handle long-lived SSE streams."""
-    return flask.Response(event_stream(flask.request.access_route[0]),
-                          mimetype='text/event-stream')
 
 
 def detect_mask():
@@ -257,13 +272,15 @@ def video_feed():
     return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
-@APP.route("/{upload_dir}/<filename>".format(upload_dir = UPLOAD_FOLDER))
+@APP.route("/{upload_dir}/<filename>".format(upload_dir=UPLOAD_FOLDER))
 def uploaded_images_file(filename):
     return flask.send_from_directory(UPLOAD_FOLDER, filename)
+
 
 @APP.route("/css/<filename>")
 def css_file(filename):
     return flask.send_from_directory(CSS_FOLDER, filename)
+
 
 @APP.route("/js/<filename>")
 def js_file(filename):
@@ -275,8 +292,8 @@ def home():
     """Provide the primary view along with its javascript."""
     # Code adapted from: http://stackoverflow.com/questions/168409/
     image_infos = []
-    for filename in os.listdir(DATA_DIR):
-        filepath = os.path.join(DATA_DIR, filename)
+    for filename in os.listdir(UPLOAD_FOLDER):
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
         file_stat = os.stat(filepath)
         if S_ISREG(file_stat[ST_MODE]):
             image_infos.append((file_stat[ST_CTIME], filepath))
