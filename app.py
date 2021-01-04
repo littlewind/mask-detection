@@ -21,7 +21,7 @@ import imutils
 from cv2 import cv2
 from flask import Flask, render_template, Response, request, flash, url_for, send_from_directory
 from imutils.video import VideoStream
-from reportlab.graphics.barcode.eanbc import UPCA
+# from reportlab.graphics.barcode.eanbc import UPCA
 from werkzeug.utils import redirect
 from werkzeug.utils import secure_filename
 
@@ -47,6 +47,7 @@ lock = threading.Lock()
 # vs = VideoStream(usePiCamera=1).start()
 vs = VideoStream(src=0).start()
 time.sleep(2.0)
+md = MaskDetector()
 
 APP = flask.Flask(__name__)
 APP.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -137,13 +138,19 @@ def event_stream(client):
 @APP.route('/post', methods=['POST'])
 def post():
     """Handle image uploads."""
-    md = MaskDetector()
+    global md
     if request.method == 'POST':
         # check if the post request has the file part
         if 'file' not in request.files:
             flash('No file part')
             return redirect(request.url)
         file = request.files['file']
+        # if user does not select file, browser also
+        # submit an empty part without filename
+        if file.filename == '':
+            flash('No selected file')
+            return redirect(request.url)
+
         response = file.read()
         frame = cv2.imdecode(np.fromstring(response, np.uint8), cv2.IMREAD_COLOR)
         frame = imutils.resize(frame, width=400)
@@ -154,16 +161,13 @@ def post():
 
         result = md.detect(frame)
         print(type(result))
-        img = Image.fromarray(result, "RGB")
-        # if user does not select file, browser also
-        # submit an empty part without filename
-        if file.filename == '':
-            flash('No selected file')
-            return redirect(request.url)
+        # img = Image.fromarray(result, "RGB")
 
-        if img and allowed_file(file.filename):
+        # if img and allowed_file(file.filename):
+        if allowed_file(file.filename):
             filename = secure_filename(file.filename)
-            img.save(os.path.join(UPLOAD_FOLDER, filename))
+            # img.save(os.path.join(UPLOAD_FOLDER, filename))
+            cv2.imwrite(os.path.join(UPLOAD_FOLDER, filename), result)
             print("done")
 
     image_infos = []
@@ -197,11 +201,11 @@ def stream():
 
 
 def detect_mask():
-    global vs, outputFrame, lock
+    global vs, outputFrame, lock, md
 
     # initialize the motion detector and the total number of frames
     # read thus far
-    md = MaskDetector()
+    # md = MaskDetector()
     while True:
         # read the next frame from the video stream, resize it,
         # convert the frame to grayscale, and blur it
